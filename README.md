@@ -1,6 +1,6 @@
 # summary
 
-musasaua is a [http](http://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol) library with built in support for [proxy](http://en.wikipedia.org/wiki/Tunneling_protocol), [cookies](http://en.wikipedia.org/wiki/HTTP_cookie) and [redirect](http://en.wikipedia.org/wiki/URL_redirection), written in pure [Lua](http://www.lua.org/) on top of [Luvit](http://luvit.io/).
+musasaua is a [http](http://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol)/[https](http://en.wikipedia.org/wiki/HTTP_Secure) library with built in support for [proxy](http://en.wikipedia.org/wiki/Tunneling_protocol), [cookies](http://en.wikipedia.org/wiki/HTTP_cookie) and [redirect](http://en.wikipedia.org/wiki/URL_redirection), written in pure [Lua](http://www.lua.org/) on top of [Luvit](http://luvit.io/).
 
 # WTF musasaua means?
 
@@ -22,7 +22,12 @@ please fill an issue or help it doing a clone and then a pull request
     musasaua.enable_debug = true  -- debug
     musasaua.read_timeout = 20000 -- in mileseconds
     musasaua:request(
-      {url = 'http://example.com/index.html', method = 'CONNECT', domain = '127.0.0.1', port = 8123},  -- request example.com using proxy e.g. tor/polipo
+      {
+        url    = 'http://example.com/index.html', -- request example.com using proxy e.g. tor/polipo
+        method = 'CONNECT', 
+        domain = '127.0.0.1', 
+        port   = 8123
+      },  
       function(data)
         if data and data.code==200 then
           print(data.body)
