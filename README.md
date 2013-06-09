@@ -18,12 +18,20 @@ please fill an issue or help it doing a clone and then a pull request
 
 ```lua
     
-    musasaua              = require 'musasaua'
-    musasaua.enable_debug = true  -- debug
-    musasaua.read_timeout = 20000 -- in mileseconds
-    musasaua:request(
+    -- require library
+    local musasaua = require 'musasaua'
+
+    -- new instance
+    local http = musasaua:new()
+    
+    --
+    http.enable_debug = true
+    http.read_timeout = 20000 -- in mileseconds
+
+    -- request content, thru proxy, keep alive ...
+    http:request(
       {
-        url    = 'http://example.com/index.html', -- request example.com using proxy e.g. tor/polipo
+        url    = 'http://example.com/index.html', -- using proxy (polipo)
         method = 'CONNECT', 
         domain = '127.0.0.1', 
         port   = 8123
@@ -43,7 +51,7 @@ please fill an issue or help it doing a clone and then a pull request
 
 # TODO
 
-+ support luvit module style
++ <s>support luvit module style</s>
 + create a test suite
 + create a wiki?
 
