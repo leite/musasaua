@@ -8,29 +8,26 @@
 -- YAHL, runs on top of luvit, the default http library breaks while i use coroutines
 -- TODO: create write/reading semaphores
 
-local string = require 'string'
-local timer  = require 'timer'
-local table  = require 'table'
-local os     = require 'os'
+local st, ti, ta, os = require 'string', require 'timer', require 'table', require 'os'
 
 -- libs methods
-local musasaua, set_timeout, clear_timeout, find, gsub, match, lower, upper, sub, len, format, byte, time, date, insert, remove
-    = {}, timer.setTimeout, timer.clearTimer, string.find, string.gsub, string.match, string.lower, string.upper, string.sub, string.len, string.format, string.byte, os.time, os.date, table.insert, table.remove
+local musasaua, set_timeout, clear_timeout, find, gsub, match, 
+      lower, upper, sub, len, format, byte, time, date, insert, remove = 
+      {}, ti.setTimeout, ti.clearTimer, st.find, st.gsub, st.match, 
+      st.lower, st.upper, st.sub, st.len, st.format, st.byte, os.time, os.date, ta.insert, ta.remove
 
 -- clean garbage
-string, timer, table, os = nil, nil, nil, nil
+st, ti, ta, os = nil, nil, nil, nil
 
 -- local and private variables ...
-local version, on_data, has_socket_events, timeout, connection, response, months      
-    = 0.1, nil, false, nil, {socket=nil, domain='', port=0, headers={}, redirects=0, secure=false}, {code=0, headers=nil, data='', body=nil}, {Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6, Jul=7, Aug=8, Sep=9, Oct=10, Nov=11, Dec=12}
+local version, months = 
+      0.1, {Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6, Jul=7, Aug=8, Sep=9, Oct=10, Nov=11, Dec=12}
 
 -- Local/Private methods ...
 
 -- debug
 local function debug(...)
-  if musasaua.enable_debug then 
-    p('musasaua: ', ...)
-  end
+  p('musasaua: ', ...)
 end
 
 -- parse gmt date string to unix date
@@ -45,36 +42,36 @@ local function get_gmt_string(unix_date)
 end
 
 -- persists data upon navigation (cookie jar / referer)
-local function persist_data(options)
+local function persist_data(options, headers)
   
   for k, v in pairs(options) do
     if v then
       if k=='cookie' then
         local xx, cookie_found = 0, false
-        connection.headers[k] = connection.headers[k] or {}
-        for xx=1, #connection.headers[k] do
-          if connection.headers[k][xx].name==v.name and connection.headers[k][xx].domain==v.domain and connection.headers[k][xx].path==v.path then
+        headers[k] = headers[k] or {}
+        for xx=1, #headers[k] do
+          if headers[k][xx].name==v.name and headers[k][xx].domain==v.domain and headers[k][xx].path==v.path then
             cookie_found = true
             if v.expires then
               if v.expires < time(date('!*t')) then
-                remove(connection.headers[k], xx)
+                remove(headers[k], xx)
                 xx = xx - 1
               else
-                connection.headers[k][xx].value   = v.value
-                connection.headers[k][xx].expires = v.expires
+                headers[k][xx].value   = v.value
+                headers[k][xx].expires = v.expires
               end
             else
-              connection.headers[k][xx].value   = v.value
-              connection.headers[k][xx].expires = v.expires
+              headers[k][xx].value   = v.value
+              headers[k][xx].expires = v.expires
             end
           end
         end
 
         if not cookie_found then
-          insert(connection.headers[k], v)
+          insert(headers[k], v)
         end
       else
-        connection.headers[k] = v or connection.headers[k]
+        headers[k] = v or headers[k]
       end
     end
   end
@@ -160,11 +157,11 @@ local function pack_headers(header, domain, path)
 end
 
 -- parse response headers
-local function parse_headers()
+local function parse_headers(response, connection)
   -- headers already parsed
   if response.code>0 then
     return true
-  end   
+  end
   local headers_boundary, headers_content = find(response.data, "\r\n\r\n"), ''
   if not headers_boundary then 
     return false
@@ -191,7 +188,7 @@ local function parse_headers()
       -- cookies logic
       if k=='set-cookie' then
         v = parse_cookie(v)
-        persist_data({cookie = v})
+        persist_data({cookie = v}, connection.headers)
       end
 
       if response.headers[k] then
@@ -207,7 +204,7 @@ local function parse_headers()
 end
 
 -- parse response body
-local function parse_body()
+local function parse_body(response)
   -- do not parse until contains headers
   if not response.headers then
     return false
@@ -254,257 +251,268 @@ local function parse_body()
   end
 end
 
--- data receiving callback
-local function on_receive(blob)
-  if blob==false then
-    clear_timeout(timeout)
-    debug('-- receive timeout --')
-    if connection.socket then
-      connection.socket:destroy()
-    end
-    if on_data then
-      set_timeout(3, on_data, false)
-    end
-    return
-  end
-  
-  response.data = response.data .. blob
-  --p(len(response.data))
-  --debug('-- ... --', parse_headers(), parse_body())
 
-  if parse_headers() and parse_body() then
-
-    debug('-- HHH --', musasaua.follow_redirects, response.code)
-
-    if musasaua.follow_redirects and (response.code==302 or response.code==301) then
-      debug('-- about to redirecting --')
-      if connection.redirects < musasaua.max_redirects then
-        connection.redirects = connection.redirects + 1
-        clear_timeout(timeout)
-        --
-        local function redirect_callback()
-
-          debug('-- inside redirect callback ', connection)
-
-          local url = gsub(response.headers.location, 'https?://'..connection.domain..'/', '/')
-          debug('-- redirecting --', url)
-          if sub(url, 1, 1)=='/' then
-            musasaua:request({domain=connection.domain, port=connection.port, path=url}, nil)
-          else
-            musasaua:request({url=url}, nil)
-          end
-        end
-        --
-        if response.headers.connection=='close' then
-          debug('-- about to close 0 --')
-          connection.socket:destroy()
-          connection.socket:once('close', redirect_callback)
-        else
-          redirect_callback()
-        end
-        return
-      end
-    end
-
-    connection.redirects = 0
-
-    if response.headers.connection=='close' then
-      debug('-- about to close 1 --')
-      connection.socket:destroy()
-      return
-    end
-
-    clear_timeout(timeout)
-    set_timeout(3, on_data, response)
-    on_data = nil
-  end
-end
 
 -- Public methods ...
+function musasaua.new()
 
--- main metatable
-musasaua = setmetatable({
+  local on_data, has_socket_events, timeout, connection, response, this      
+        = nil, false, nil, {socket=nil, domain='', port=0, headers={}, redirects=0, secure=false}, {code=0, headers=nil, data='', body=nil}, {}
 
-  connection_timeout = 10000,
-  read_timeout       = 5000,
-  keep_alive         = false,
-  preserve_cookies   = true,
-  follow_redirects   = true,
-  max_redirects      = 2,
-  enable_debug       = false,
-  is_connected       = false,
-
-  connect = function(self, host, port, secure, callback)
-    -- already connected with the same host/port
-    if connection.socket and (connection.domain==host and connection.port==port or self.keep_alive) then
-      debug('-- already connected --')
-      set_timeout(3, callback, nil)
+  -- data receiving callback
+  local function on_receive(blob)
+    if blob==false then
+      clear_timeout(timeout)
+      debug('-- receive timeout --')
+      if connection.socket then
+        connection.socket:destroy()
+      end
+      if on_data then
+        set_timeout(3, on_data, false, 'timeout')
+      end
+      on_data = nil
       return
     end
-    -- avoid mistakes
-    if connection.socket then
-      debug('-- destroys, connection is called twice --')
-      connection.socket:destroy()
-    end
+    
+    response.data = response.data .. blob
 
-    local _timeout
-    local function on_completed(err)
-      self.is_connected = true
-      if err=='timeout' or type(err)=='table' then
-        debug('-- destroys --', err)
-        connection.socket:destroy()
-        connection.socket = nil
-        connection.domain = ''
-        connection.port   = 0
-      elseif type(err)=='function' then
-        return
-      else
-        debug('-- clear connection timeout --')
-        clear_timeout(_timeout)
-      end
-      callback(err)
-    end
+    if parse_headers(response, connection) and parse_body(response) then
 
-    connection.port   = port
-    connection.domain = host
-    connection.socket = (secure and require('tls').connect or require('net').createConnection)({host = host, port = port}, on_completed)
-    _timeout = set_timeout(self.connection_timeout, on_completed, 'timeout')
+      debug('-- HHH --', this.follow_redirects, response.code)
 
-    if not has_socket_events then
-      debug('-- assign events --')
-      --connection.socket:on('drain', function(a) p('drain', a) end)
-      --connection.socket:on('end', function(a) p('end', a) end)
-      connection.socket:on('error', on_completed)
-      connection.socket:on('close', function() 
-        debug('-- closed --')
-        self.is_connected = false
-        if connection.redirects==0 then
-          connection.domain = ''
-          connection.port   = 0
-          debug('-- inside close --', on_data)
-          if on_data then
-            debug('-- socket closed, calling callback --')
-            if timeout then
-              debug('-- timeout after closed --', timeout)
-              clear_timeout(timeout)
+      if this.follow_redirects and (response.code==302 or response.code==301) then
+        debug('-- about to redirecting --')
+        if connection.redirects < this.max_redirects then
+          connection.redirects = connection.redirects + 1
+          clear_timeout(timeout)
+          --
+          local function redirect_callback()
+
+            debug('-- inside redirect callback ', connection)
+
+            local url = gsub(response.headers.location, 'https?://'..connection.domain..'/', '/')
+            debug('-- redirecting --', url)
+            if sub(url, 1, 1)=='/' then
+              this:request({domain=connection.domain, port=connection.port, path=url}, nil)
+            else
+              this:request({url=url}, nil)
             end
-            set_timeout(3, on_data, response)
           end
-          on_data = nil
+          --
+          if response.headers.connection=='close' then
+            debug('-- about to close 0 --')
+            connection.socket:destroy()
+            connection.socket:once('close', redirect_callback)
+          else
+            redirect_callback()
+          end
+          return
         end
-        connection.socket = nil
-        has_socket_events = false
-      end)
-
-      connection.socket:on('data', on_receive)
-
-      has_socket_events = true
-    end
-  end,
-
-  -- options, callback
-  -- options = {url = '', params = {}, method = 'GET', headers = {}, timeout = 20000}
-  request = function(self, options, callback)
-    --if not options.url then
-    --  set_timeout(3, callback or on_data, 'url is mandatory')
-    --  return
-    --end
-    options.params  = options.params  or ''
-    options.method  = options.method  or 'GET'
-    options.headers = options.headers or {}
-    options.timeout = options.timeout or self.read_timeout
-
-    local headers, use_ssl = {}, false
-
-    if not options.domain or not options.port then
-      local function parse_domain(protocol, domain_name, port_number, path_string)
-        if protocol=="https" then
-          options.port = tonumber(port_number) or 443
-          use_ssl      = true
-        elseif protocol=="http" then
-          options.port = tonumber(port_number) or 80
-          use_ssl      = false
-        else
-          error('Invalid protocol')
-        end
-        options.domain = domain_name 
-        options.path   = options.path or path_string
       end
 
-      gsub(options.url, "^(https?)://([^:?/]*):?(%d*)(/[^$]*)$", parse_domain)
-    else
-      use_ssl = use_ssl and use_ssl or (options.port==443 and true or false)
-    end
+      connection.redirects = 0
 
-    -- sanitize headers
-    for key, value in pairs(connection.headers) do
-      headers[lower(key)] = value
-    end
-    for key, value in pairs(options.headers) do
-      headers[lower(key)] = value
-    end
-    headers['user-agent'] = format("Lua-Musasaua/%g", version)
-    headers.connection    = headers.connection or (self.keep_alive and 'keep-alive' or 'close')
-    headers.accept        = headers.accept or '*/*'
-    headers.host          = headers.host or (options.domain .. ((options.port==80 or options.port==443) and '' or ':'..options.port))
-    options.headers       = headers
-
-    local function on_connected(err)
-      if err then
-        debug('-- whathahell --', err)
-        set_timeout(3, callback or on_data, err)
+      if response.headers.connection=='close' then
+        debug('-- about to close 1 --')
+        connection.socket:destroy()
         return
       end
 
-      local to_send = ''
-
-      if options.method=='GET' or options.method=='HEAD' then
-        local search = (type(options.params)=='string' and options.params or stringify_query(options.params))
-        options.path = options.path .. (search=='' and '' or '?'..search)
-        to_send = format("%s %s HTTP/1.1%s\r\n\r\n", options.method, options.path, pack_headers(options.headers, options.domain, options.path))
-        connection.socket:write(to_send)
-      elseif options.method=='POST' or options.method=='PUT' then
-        options.params = (type(options.params)=='string' and options.params or stringify_query(options.params))
-        options.headers['content-length'] = len(options.params)
-        options.headers['content-type']   = 'application/x-www-form-urlencoded'
-        to_send = format("%s %s HTTP/1.1%s\r\n\r\n%s\r\n\r\n", options.method, options.path, pack_headers(options.headers, options.domain, options.path), options.params)
-        connection.socket:write(to_send)
-      elseif options.method=='CONNECT' then
-        to_send = format("CONNECT %s HTTP/1.0\nHost: %s\nLua-Musasaua/%g\n\n", options.url, options.url, version)
-        connection.socket:write(to_send)
-      else
-        error('Invalid request method')
-      end
-
-      debug('-- connected --')
-      debug('>> '.. to_send)
-
-      persist_data({
-        referer       = options.url or ((options.path and options.headers.referer) and gsub(options.headers.referer, "(https?://[^/?$?]+)/?([^$]*)", "%1"..options.path) or options.headers.referer), 
-        authorization = options.headers.authorization
-      })
-
-      if response.headers then
-        if not response.headers.location then
-          response.headers = nil
-        end
-      else
-        response.headers = nil
-      end
-      response.code    = 0
-      response.data    = ''
-      response.body    = nil
-
-      debug(on_data, callback)
-
-      on_data          = callback or on_data
-      timeout          = set_timeout(options.timeout, on_receive, false)
+      clear_timeout(timeout)
+      set_timeout(3, on_data, response)
+      on_data = nil
     end
-
-    debug(format("%s:%d, %s", options.domain, options.port, use_ssl and 'secure socket layer' or 'ok'))
-    self:connect(options.domain, options.port, use_ssl, on_connected)
   end
 
-},{__index = musasaua})
+  this = {
+    connection_timeout = 10000,
+    read_timeout       = 5000,
+    keep_alive         = false,
+    preserve_cookies   = true,
+    follow_redirects   = true,
+    max_redirects      = 2,
+    enable_debug       = false,
+    is_connected       = false,
+
+    --
+    connect = function(self, host, port, secure, callback)
+      -- already connected with the same host/port
+      if connection.socket and (connection.domain==host and connection.port==port or self.keep_alive) then
+        debug('-- already connected --')
+        set_timeout(3, callback, nil)
+        return
+      end
+      -- avoid mistakes
+      if connection.socket then
+        debug('-- destroys, connection is called twice --')
+        connection.socket:destroy()
+      end
+
+      local _timeout
+      local function on_completed(err)
+        self.is_connected = true
+        if err=='timeout' or type(err)=='table' then
+          debug('-- destroys --', err)
+          connection.socket:destroy()
+          connection.socket = nil
+          connection.domain = ''
+          connection.port   = 0
+        elseif type(err)=='function' then
+          return
+        else
+          debug('-- clear connection timeout --')
+          clear_timeout(_timeout)
+        end
+        callback(err)
+      end
+
+      connection.port   = port
+      connection.domain = host
+      connection.socket = (secure and require('tls').connect or require('net').createConnection)({host = host, port = port}, on_completed)
+      _timeout          = set_timeout(self.connection_timeout, on_completed, 'timeout')
+
+      if not has_socket_events then
+        debug('-- assign events --')
+        --connection.socket:on('drain', function(a) p('drain', a) end)
+        --connection.socket:on('end', function(a) p('end', a) end)
+        connection.socket:on('error', on_completed)
+        connection.socket:on('close', function() 
+          debug('-- closed --')
+          self.is_connected = false
+          if connection.redirects==0 then
+            connection.domain = ''
+            connection.port   = 0
+            debug('-- inside close --', on_data)
+            if on_data then
+              debug('-- socket closed, calling callback --')
+              if timeout and timeout._onTimeout then
+                debug('-- timeout after closed --', timeout)
+                clear_timeout(timeout)
+              end
+              set_timeout(3, on_data, response)
+            end
+            on_data = nil
+          end
+          connection.socket = nil
+          has_socket_events = false
+        end)
+
+        connection.socket:on('data', on_receive)
+
+        has_socket_events = true
+      end
+    end,
+
+    -- options, callback
+    -- options = {url = '', params = {}, method = 'GET', headers = {}, timeout = 20000}
+    request = function(self, options, callback)
+      p(options)
+      --if not options.url then
+      --  set_timeout(3, callback or on_data, 'url is mandatory')
+      --  return
+      --end
+      options.params  = options.params  or ''
+      options.method  = options.method  or 'GET'
+      options.headers = options.headers or {}
+      options.timeout = options.timeout or self.read_timeout
+
+      local headers, use_ssl = {}, false
+
+      if not options.domain or not options.port then
+        local function parse_domain(protocol, domain_name, port_number, path_string)
+          p(protocol, domain_name, port_number, path_string)
+          if protocol=="https" then
+            options.port = tonumber(port_number) or 443
+            use_ssl      = true
+          elseif protocol=="http" then
+            options.port = tonumber(port_number) or 80
+            use_ssl      = false
+          else
+            error('Invalid protocol')
+          end
+          options.domain = domain_name 
+          options.path   = options.path or (path_string=='' and '/' or path_string)
+          p(options)
+        end
+
+        gsub(options.url, "^(https?)://([^:?/?$]*):?(%d*)(/?[^$]*)$", parse_domain)
+      else
+        use_ssl = use_ssl and use_ssl or (options.port==443 and true or false)
+      end
+
+      -- sanitize headers
+      for key, value in pairs(connection.headers) do
+        headers[lower(key)] = value
+      end
+      for key, value in pairs(options.headers) do
+        headers[lower(key)] = value
+      end
+      headers['user-agent'] = format("Lua-Musasaua/%g", version)
+      headers.connection    = headers.connection or (self.keep_alive and 'keep-alive' or 'close')
+      headers.accept        = headers.accept or '*/*'
+      headers.host          = headers.host or (options.domain .. ((options.port==80 or options.port==443) and '' or ':'..options.port))
+      options.headers       = headers
+
+      local function on_connected(err)
+        if err then
+          debug('-- whathahell --', err)
+          set_timeout(3, callback or on_data, err)
+          return
+        end
+
+        local to_send = ''
+
+        if options.method=='GET' or options.method=='HEAD' then
+          local search = (type(options.params)=='string' and options.params or stringify_query(options.params))
+          options.path = options.path .. (search=='' and '' or '?'..search)
+          to_send = format("%s %s HTTP/1.1%s\r\n\r\n", options.method, options.path, pack_headers(options.headers, options.domain, options.path))
+          connection.socket:write(to_send)
+        elseif options.method=='POST' or options.method=='PUT' then
+          options.params = (type(options.params)=='string' and options.params or stringify_query(options.params))
+          options.headers['content-length'] = len(options.params)
+          options.headers['content-type']   = 'application/x-www-form-urlencoded'
+          to_send = format("%s %s HTTP/1.1%s\r\n\r\n%s\r\n\r\n", options.method, options.path, pack_headers(options.headers, options.domain, options.path), options.params)
+          connection.socket:write(to_send)
+        elseif options.method=='CONNECT' then
+          to_send = format("CONNECT %s HTTP/1.0\nHost: %s\nLua-Musasaua/%g\n\n", options.url, options.url, version)
+          connection.socket:write(to_send)
+        else
+          error('Invalid request method')
+        end
+
+        debug('-- connected --')
+        debug('>> '.. to_send)
+
+        persist_data({
+            referer       = options.url or ((options.path and options.headers.referer) and gsub(options.headers.referer, "(https?://[^/?$?]+)/?([^$]*)", "%1"..options.path) or options.headers.referer), 
+            authorization = options.headers.authorization
+          },
+          connection.headers
+        )
+
+        if response.headers then
+          if not response.headers.location then
+            response.headers = nil
+          end
+        else
+          response.headers = nil
+        end
+        response.code    = 0
+        response.data    = ''
+        response.body    = nil
+
+        debug(on_data, callback)
+
+        on_data          = callback or on_data
+        timeout          = set_timeout(options.timeout, on_receive, false)
+      end
+
+      debug(format("%s:%d, %s", options.domain, options.port, use_ssl and 'secure socket layer' or 'ok'))
+      self:connect(options.domain, options.port, use_ssl, on_connected)
+    end
+  }
+  setmetatable(this, musasaua)
+  return this
+end
 
 return musasaua
