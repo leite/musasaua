@@ -27,7 +27,7 @@ local version, months =
 
 -- debug
 local function debug(...)
-  p('musasaua: ', ...)
+  --p('musasaua: ', ...)
 end
 
 -- parse gmt date string to unix date
@@ -268,7 +268,7 @@ function musasaua.new()
         connection.socket:destroy()
       end
       if on_data then
-        set_timeout(3, on_data, false, 'timeout')
+        set_timeout(1, on_data, false, 'timeout')
       end
       on_data = nil
       return
@@ -319,7 +319,7 @@ function musasaua.new()
       end
 
       clear_timeout(timeout)
-      set_timeout(3, on_data, response)
+      set_timeout(1, on_data, response)
       on_data = nil
     end
   end
@@ -339,7 +339,7 @@ function musasaua.new()
       -- already connected with the same host/port
       if connection.socket and (connection.domain==host and connection.port==port or self.keep_alive) then
         debug('-- already connected --')
-        set_timeout(3, callback, nil)
+        set_timeout(1, callback, nil)
         return
       end
       -- avoid mistakes
@@ -389,7 +389,7 @@ function musasaua.new()
                 debug('-- timeout after closed --', timeout)
                 clear_timeout(timeout)
               end
-              set_timeout(3, on_data, response)
+              set_timeout(1, on_data, response)
             end
             on_data = nil
           end
@@ -406,7 +406,7 @@ function musasaua.new()
     -- options, callback
     -- options = {url = '', params = {}, method = 'GET', headers = {}, timeout = 20000}
     request = function(self, options, callback)
-      p(options)
+      --p(options)
       --if not options.url then
       --  set_timeout(3, callback or on_data, 'url is mandatory')
       --  return
@@ -420,7 +420,7 @@ function musasaua.new()
 
       if not options.domain or not options.port then
         local function parse_domain(protocol, domain_name, port_number, path_string)
-          p(protocol, domain_name, port_number, path_string)
+          --p(protocol, domain_name, port_number, path_string)
           if protocol=="https" then
             options.port = tonumber(port_number) or 443
             use_ssl      = true
@@ -432,7 +432,7 @@ function musasaua.new()
           end
           options.domain = domain_name 
           options.path   = options.path or (path_string=='' and '/' or path_string)
-          p(options)
+          --p(options)
         end
 
         gsub(options.url, "^(https?)://([^:?/?$]*):?(%d*)(/?[^$]*)$", parse_domain)
@@ -456,7 +456,7 @@ function musasaua.new()
       local function on_connected(err)
         if err then
           debug('-- whathahell --', err)
-          set_timeout(3, callback or on_data, err)
+          set_timeout(1, callback or on_data, err)
           return
         end
 
